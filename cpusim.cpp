@@ -1,4 +1,5 @@
 #include "CPU.h"
+#include "InstructionParts.h"
 
 #include <iostream>
 #include <bitset>
@@ -59,8 +60,7 @@ int main(int argc, char* argv[])
 	CPU class also has different functions for each stage (e.g., fetching an instruction, decoding, etc.).
 	*/
 
-	CPU myCPU;  // call the approriate constructor here to initialize the processor...  
-	// make sure to create a variable for PC and resets it to zero (e.g., unsigned int PC = 0); 
+	CPU myCPU = CPU();  // call the approriate constructor here to initialize the processor... make sure to create a variable for PC and resets it to zero (e.g., unsigned int PC = 0); 
 
 	/* OPTIONAL: Instantiate your Instruction object here. */
 	//Instruction myInst; 
@@ -68,11 +68,9 @@ int main(int argc, char* argv[])
 	bool done = true;
 	while (done == true) // processor's main loop. Each iteration is equal to one clock cycle.  
 	{
-		//fetch
-		
-
-		// decode
-		
+		uint32_t currentInstruction = myCPU.fetch(instMem); //fetch
+		InstructionParts parts = myCPU.decode(currentInstruction); // decode
+		ALU myALU = ALU(); // instantiate ALU
 		// ... 
 		myCPU.incPC();
 		if (myCPU.readPC() > maxPC)

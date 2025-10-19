@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include<stdlib.h>
 #include <string>
+#include "InstructionParts.h"
 using namespace std;
 
 
@@ -22,7 +23,9 @@ public:
 	CPU();
 	unsigned long readPC();
 	void incPC();
-	
+	uint32_t fetch(char *instMem); // fetch the 32-bit instruction from instruction memory
+	InstructionParts decode(uint32_t instruction); // decode the fetched instruction
+	void execute(); // execute the ALU instructions
 };
 
 // add other functions and objects here
