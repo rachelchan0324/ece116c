@@ -70,7 +70,8 @@ int main(int argc, char* argv[])
 	{
 		uint32_t currentInstruction = myCPU.fetch(instMem); //fetch
 		InstructionParts parts = myCPU.decode(currentInstruction); // decode
-		ALU myALU = ALU(); // instantiate ALU
+		myCPU.execute(parts); // execute
+
 		// ... 
 		myCPU.incPC();
 		if (myCPU.readPC() > maxPC)
