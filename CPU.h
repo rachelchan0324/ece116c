@@ -23,19 +23,15 @@ using namespace std;
 // };
 
 class CPU {
-private:
-	int dmemory[4096]; //data memory byte addressable in little endian fashion;
-	unsigned long PC; //pc 
-
 public:
 	CPU();
 	unsigned long readPC();
-	void incPC();
 	uint32_t fetch(char *instMem); // fetch the 32-bit instruction from instruction memory
 	InstructionParts decode(uint32_t instruction); // decode the fetched instruction
 	bool execute(InstructionParts parts); // execute the ALU instructions
 	int32_t readRegister(int regNum); // read register value
 	void printAllRegisters(); // debug function to print all register values
+	void updateCurrentFromNext();
 private:
 	ImmGen immGen;
 	ALU alu;
@@ -43,6 +39,8 @@ private:
 	Controller controller;
 	RegFile regFile;
 	Memory memory;
+
+	unsigned long current_PC, next_PC;
 };
 
 #endif // CPU_H

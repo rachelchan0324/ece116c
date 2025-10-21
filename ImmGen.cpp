@@ -6,10 +6,11 @@ int32_t ImmGen::generate(uint32_t instruction) {
     int32_t immediate = 0;
 
     switch (opcode) {
-        case 0x13: // I-type
+        case 0x13: // I-type (ADDI, ORI, etc.)
+        case 0x03: // I-type (LW, LBU, etc.) - ADD THIS LINE
             immediate = (instruction >> 20) & 0xFFF; // bits [31:20]
             if (immediate & 0x800) {
-                immediate |= 0xFFFFF000;
+                immediate |= 0xFFFFF000; // sign extend
             }
             break;
         case 0x23: // S-type

@@ -1,13 +1,19 @@
 #include "Controller.h"
 
-Controller::Controller() {
+void Controller::resetSignals() {
     for(int i = 0; i < 7; i++) {
         signals[i] = false;
     }
     aluOp = ALUOp::ALU_OP_INVALID;
 }
 
+Controller::Controller() {
+    resetSignals();
+}
+
 void Controller::setControlSignals(uint32_t opcode) {
+    resetSignals();
+
     switch (opcode) {
         case 0x33: // R-type
             signals[ControlSignals::RegWrite] = true;
@@ -38,6 +44,12 @@ void Controller::setControlSignals(uint32_t opcode) {
             signals[ControlSignals::RegWrite] = true;
             signals[ControlSignals::AluSrc] = true;
             aluOp = ALUOp::ALU_OP_PASS_IMM;
+            break;
+        case 0x67: // JALR
+            signals[ControlSignals::RegWrite] = true;
+            signals[ControlSignals::AluSrc] = true;
+            signals[ControlSignals::Link] = true;
+            aluOp = ALUOp::ALU_OP_ADD;
             break;
         default:
             // Handle other opcodes or invalid opcode

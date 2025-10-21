@@ -1,7 +1,9 @@
 #include "Memory.h"
+#include <iostream>
+using namespace std;
 
 Memory::Memory() {
-    for (int i = 0; i < 4096; i++) {
+    for (int i = 0; i < 131072; i++) {
         memory[i] = 0;
     }
 }
@@ -13,11 +15,16 @@ int32_t Memory::read(uint32_t address) {
     data |= (memory[address + 1] & 0xFF) << 8;
     data |= (memory[address + 2] & 0xFF) << 16;
     data |= (memory[address + 3] & 0xFF) << 24;
+    
     return data;
 }
 
+uint8_t Memory::readByte(uint32_t address) {
+    // reading 1 byte from memory
+    return memory[address];
+}
+
 void Memory::write(uint32_t address, int32_t data) {
-    // storing 4 bytes in little endian memory
     memory[address] = (data & 0xFF);
     memory[address + 1] = (data >> 8) & 0xFF;
     memory[address + 2] = (data >> 16) & 0xFF;

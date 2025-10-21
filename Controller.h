@@ -11,13 +11,13 @@ enum ControlSignals {
     MemRead,
     MemWrite,
     MemToReg,
+    Link,
 };
 
 enum ALUOp {
     ALU_OP_ADD,
     ALU_OP_SUB,
     ALU_OP_FUNC,
-    ALU_OP_I_TYPE,
     ALU_OP_PASS_IMM,
     ALU_OP_INVALID,
 };
@@ -29,7 +29,8 @@ class Controller {
         ALUOp getALUOp() { return aluOp; }
         bool getSignal(ControlSignals signal) { return signals[signal]; }
     private:
-        bool signals[6];
+        void resetSignals();
+        bool signals[7];
         ALUOp aluOp;
 };
 

@@ -17,8 +17,7 @@ Add all the required standard and developed libraries here
 /*
 Put/Define any helper function/definitions you need here
 */
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]) {
 	/* This is the front end of your project.
 	You need to first read the instructions that are stored in a file and load them into an instruction memory.
 	*/
@@ -60,31 +59,26 @@ int main(int argc, char* argv[])
 	int a1 =0;  
 
 	bool done = true;
-	int count = 5;
-	while (count > 0) // processor's main loop. Each iteration is equal to one clock cycle.  
-	{
-		uint32_t currentInstruction = myCPU.fetch(instMem); //fetch
-		cout << "PC: " << myCPU.readPC() << " Instruction: 0x" << hex << currentInstruction << dec << endl;
+	// processor's main loop. Each iteration is equal to one clock cycle.  
+	while (done) {
+		myCPU.updateCurrentFromNext();
+
+		uint32_t currentInstruction = myCPU.fetch(instMem);
+		InstructionParts parts = myCPU.decode(currentInstruction);
 		
-		InstructionParts parts = myCPU.decode(currentInstruction); // decode
-		cout << "Opcode: 0x" << hex << (int)parts.opcode << dec << endl;
-		
-		if (myCPU.execute(parts)) { // executes
-			cout << "Execute successful" << endl;
-			myCPU.incPC();
+		if (myCPU.execute(parts)) {
+			// execution successful
 		} else {
-			cout << "Execute failed - stopping" << endl;
 			done = false; // stop execution
 		}
+		
 		if (myCPU.readPC() > maxPC)
 			break;
 
-		myCPU.printAllRegisters(); // print all registers for debugging
 		a0 = myCPU.readRegister(10); // read register a0 (x10)
 		a1 = myCPU.readRegister(11); // read register a1 (x11)
-		count--;
 	}
-	// print the results (you should replace a0 and a1 with your own variables that point to a0 and a1)
+	// print the results
 	cout << "(" << a0 << "," << a1 << ")" << endl;
 	
 	return 0;
