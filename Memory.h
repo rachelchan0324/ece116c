@@ -1,15 +1,15 @@
-#ifndef MEMUNIT_H
-#define MEMUNIT_H
+#ifndef MEMORY_H
+#define MEMORY_H
 
 #include <cstdint>
 
-class MemUnit {
+class Memory {
     public:
-        MemUnit();
+        Memory();
         int32_t read(uint32_t address);
         void write(uint32_t address, int32_t data);
     private:
         uint8_t memory[4096];
 };
 
-#endif // MEMUNIT_H
+#endif // MEMORY_H

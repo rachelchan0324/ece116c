@@ -1,12 +1,12 @@
 #include "Memory.h"
 
-MemUnit::MemUnit() {
+Memory::Memory() {
     for (int i = 0; i < 4096; i++) {
         memory[i] = 0;
     }
 }
 
-int32_t MemUnit::read(uint32_t address) {
+int32_t Memory::read(uint32_t address) {
     // reading 4 bytes from little endian memory
     int32_t data = 0;
     data |= (memory[address] & 0xFF);
@@ -16,7 +16,7 @@ int32_t MemUnit::read(uint32_t address) {
     return data;
 }
 
-void MemUnit::write(uint32_t address, int32_t data) {
+void Memory::write(uint32_t address, int32_t data) {
     // storing 4 bytes in little endian memory
     memory[address] = (data & 0xFF);
     memory[address + 1] = (data >> 8) & 0xFF;

@@ -16,7 +16,7 @@ void Controller::setControlSignals(uint32_t opcode) {
         case 0x13: // I-type
             signals[ControlSignals::RegWrite] = true;
             signals[ControlSignals::AluSrc] = true;
-            aluOp = ALUOp::ALU_OP_ADD;
+            aluOp = ALUOp::ALU_OP_FUNC; // Check funct3 to determine operation
             break;
         case 0x03: // load
             signals[ControlSignals::RegWrite] = true;
@@ -33,6 +33,11 @@ void Controller::setControlSignals(uint32_t opcode) {
         case 0x63: // branch
             signals[ControlSignals::Branch] = true;
             aluOp = ALUOp::ALU_OP_SUB;
+            break;
+        case 0x37: // LUI
+            signals[ControlSignals::RegWrite] = true;
+            signals[ControlSignals::AluSrc] = true;
+            aluOp = ALUOp::ALU_OP_PASS_IMM;
             break;
         default:
             // Handle other opcodes or invalid opcode

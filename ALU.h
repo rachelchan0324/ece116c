@@ -12,7 +12,8 @@ enum ALUOperation {
     ALU_OR,
     ALU_SLTU,
     ALU_SRA,
-    ALU_INVALID
+    ALU_COPY_IMM,
+    ALU_INVALID,
 };
 
 // performs arithmetic and logic operations
@@ -24,7 +25,7 @@ class ALU {
         bool AluSrc;
 };
 
-// generates correct ALU operation
+// ALU controller to determine specific ALU operation
 class ALUController {
     public:
         ALUOperation getALUOperation(ALUOp aluOp, InstructionParts parts);

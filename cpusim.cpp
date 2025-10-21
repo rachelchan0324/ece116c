@@ -29,7 +29,6 @@ int main(int argc, char* argv[])
 
 	char instMem[4096];
 
-
 	if (argc < 2) {
 		//cout << "No file name entered. Exiting...";
 		return -1;
@@ -42,46 +41,51 @@ int main(int argc, char* argv[])
 	}
 	string line; 
 	int i = 0;
-	while (infile) {
-			infile>>line;
-			stringstream line2(line);
-			char x; 
-			line2>>x;
-			instMem[i] = x; // be careful about hex
-			i++;
-			line2>>x;
-			instMem[i] = x; // be careful about hex
-			//cout<<instMem[i]<<endl;
-			i++;
-		}
-	int maxPC= i/4; 
+	while (infile >> line) {
+		stringstream line2(line);
+		int x; 
+		line2 >> hex >> x;
+		instMem[i] = x;
+		i++;
+	}
+	int maxPC= i; 
 
 	/* Instantiate your CPU object here.  CPU class is the main class in this project that defines different components of the processor.
 	CPU class also has different functions for each stage (e.g., fetching an instruction, decoding, etc.).
 	*/
 
 	CPU myCPU = CPU();  // call the approriate constructor here to initialize the processor... make sure to create a variable for PC and resets it to zero (e.g., unsigned int PC = 0); 
-
-	/* OPTIONAL: Instantiate your Instruction object here. */
-	//Instruction myInst; 
 	
-	bool done = true;
-	while (done == true) // processor's main loop. Each iteration is equal to one clock cycle.  
-	{
-		uint32_t currentInstruction = myCPU.fetch(instMem); //fetch
-		InstructionParts parts = myCPU.decode(currentInstruction); // decode
-		myCPU.execute(parts); // execute
-
-		// ... 
-		myCPU.incPC();
-		if (myCPU.readPC() > maxPC)
-			break;
-	}
 	int a0 =0;
 	int a1 =0;  
+
+	bool done = true;
+	int count = 5;
+	while (count > 0) // processor's main loop. Each iteration is equal to one clock cycle.  
+	{
+		uint32_t currentInstruction = myCPU.fetch(instMem); //fetch
+		cout << "PC: " << myCPU.readPC() << " Instruction: 0x" << hex << currentInstruction << dec << endl;
+		
+		InstructionParts parts = myCPU.decode(currentInstruction); // decode
+		cout << "Opcode: 0x" << hex << (int)parts.opcode << dec << endl;
+		
+		if (myCPU.execute(parts)) { // executes
+			cout << "Execute successful" << endl;
+			myCPU.incPC();
+		} else {
+			cout << "Execute failed - stopping" << endl;
+			done = false; // stop execution
+		}
+		if (myCPU.readPC() > maxPC)
+			break;
+
+		myCPU.printAllRegisters(); // print all registers for debugging
+		a0 = myCPU.readRegister(10); // read register a0 (x10)
+		a1 = myCPU.readRegister(11); // read register a1 (x11)
+		count--;
+	}
 	// print the results (you should replace a0 and a1 with your own variables that point to a0 and a1)
-	  cout << "(" << a0 << "," << a1 << ")" << endl;
+	cout << "(" << a0 << "," << a1 << ")" << endl;
 	
 	return 0;
-
 }

@@ -1,4 +1,8 @@
+#ifndef CONTROLLER_H
+#define CONTROLLER_H
+
 #include <bitset>
+#include <cstdint>
 
 enum ControlSignals {
     RegWrite,
@@ -13,6 +17,8 @@ enum ALUOp {
     ALU_OP_ADD,
     ALU_OP_SUB,
     ALU_OP_FUNC,
+    ALU_OP_I_TYPE,
+    ALU_OP_PASS_IMM,
     ALU_OP_INVALID,
 };
 
@@ -21,8 +27,10 @@ class Controller {
         Controller();
         void setControlSignals(uint32_t opcode);
         ALUOp getALUOp() { return aluOp; }
-        bool readSignal(ControlSignals signal) { return signals[signal]; }
+        bool getSignal(ControlSignals signal) { return signals[signal]; }
     private:
         bool signals[6];
         ALUOp aluOp;
 };
+
+#endif // CONTROLLER_H
