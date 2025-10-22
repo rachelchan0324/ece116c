@@ -1,17 +1,19 @@
 #include "ALU.h"
 #include "Controller.h"
 
+// initialize alu with default settings
 ALU::ALU() {AluSrc = false;}
 
+// determine specific alu operation based on instruction type and fields
 ALUOperation ALUController::getALUOperation(ALUOp aluOp, InstructionParts parts) {
     if (aluOp == ALU_OP_ADD) {
-        return ALU_ADD; // For ADDI, LBU, LW, SH, SW, JALR (address calculations)
+        return ALU_ADD; // for address calculations (loads, stores, jalr)
     } else if (aluOp == ALU_OP_SUB) {
-        return ALU_SUB; // For BNE (comparison)
+        return ALU_SUB; // for branch comparisons
     } else if (aluOp == ALU_OP_PASS_IMM) {
-        return ALU_COPY_IMM; // For LUI, we can treat it as an ADD with zero
+        return ALU_COPY_IMM; // for lui instruction
     } else if (aluOp == ALU_OP_FUNC) {
-        // determine operation based on funct3 and funct7 for R-type instructions
+        // check opcode and funct3 to determine specific operation
 
         if (parts.opcode == 0x13 && parts.funct3 == 0x0) {
             return ALU_ADD; // ADDI
@@ -43,6 +45,7 @@ ALUOperation ALUController::getALUOperation(ALUOp aluOp, InstructionParts parts)
     return ALU_INVALID;
 }
 
+// perform arithmetic and logical computations
 int32_t ALU::compute(int32_t operand1, int32_t operand2, ALUOperation operation) {
     switch(operation) {
         case ALU_ADD:

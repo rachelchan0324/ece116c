@@ -5,34 +5,40 @@
 #include <iostream>
 #include <iomanip>
 
+// initialize cpu with pc starting at 0
 CPU::CPU() {
 	current_PC = 0;
 	next_PC = 0;
 }
 
+// return current program counter value
 unsigned long CPU::readPC() {
 	return current_PC;
 }
 
+// update current state from next state (start of new cycle)
 void CPU::updateCurrentFromNext() {
 	current_PC = next_PC;
 }
 
+// read value from specified register
 int32_t CPU::readRegister(int regNum) {
 	return regFile.read(regNum);
 }
 
+// fetch 32-bit instruction from memory at current pc
 uint32_t CPU::fetch(char *instMem) {
 	uint8_t byte0 = instMem[current_PC];
 	uint8_t byte1 = instMem[current_PC + 1];
 	uint8_t byte2 = instMem[current_PC + 2];
 	uint8_t byte3 = instMem[current_PC + 3];
 
-	// convert to big endian
+	// assemble little endian bytes into 32-bit instruction
 	uint32_t currentInstruction = (byte3 << 24) | (byte2 << 16) | (byte1 << 8) | byte0;
 	return currentInstruction;
 }
 
+// decode 32-bit instruction into component parts
 InstructionParts CPU::decode(uint32_t instruction) {
 	InstructionParts parts;
 	parts.opcode = instruction & 0x7F; // opcode is in bits [6:0] (7 bits)
@@ -45,10 +51,11 @@ InstructionParts CPU::decode(uint32_t instruction) {
 	return parts;
 }
 
+// execute decoded instruction and update next pc
 bool CPU::execute(InstructionParts parts) {
 	controller.setControlSignals(parts.opcode);
 
-	// determine ALU operation
+	// determine alu operation from opcode and function fields
 	ALUOp aluOp = controller.getALUOp();
 	if (aluOp == ALU_OP_INVALID) {
 		return false;
@@ -59,10 +66,11 @@ bool CPU::execute(InstructionParts parts) {
 		return false;
 	}
 
-	// determine operands
-	int32_t rs1_data = regFile.read(parts.rs1); // Read register values when needed
+	// read source register values
+	int32_t rs1_data = regFile.read(parts.rs1);
 	int32_t rs2_data = regFile.read(parts.rs2);
 	
+	// perform alu computation with register or immediate operand
 	int32_t result;
 	if (controller.getSignal(ControlSignals::AluSrc)) {
 		result = alu.compute(rs1_data, parts.immediate, aluOperation);
@@ -70,13 +78,13 @@ bool CPU::execute(InstructionParts parts) {
 		result = alu.compute(rs1_data, rs2_data, aluOperation);
 	}
 
-	// check memory signals
+	// handle memory operations
 	if (controller.getSignal(ControlSignals::MemWrite)) {
 		memory.write(result, rs2_data);
 	}
 
 	if (controller.getSignal(ControlSignals::MemRead)) {
-		// check the funct3 field to distinguish between load types
+		// distinguish between different load instruction types
 		if (parts.funct3 == 0x4) { // LBU (Load Byte Unsigned)
 			uint8_t byte_data = memory.readByte(result);
 			result = static_cast<int32_t>(byte_data); // zero-extend the byte
@@ -85,27 +93,30 @@ bool CPU::execute(InstructionParts parts) {
 		}
 	}
 
+	// handle register writeback and control flow
 	if(controller.getSignal(ControlSignals::RegWrite)) {
 		if(controller.getSignal(ControlSignals::Branch)) {
 			if (result != 0) {
 				next_PC = current_PC + parts.immediate;	// take the branch
 				regFile.write(parts.rd, result);
-				return true; // skip default PC += 4
+				return true; // skip default PC increment
 			}
 		}
 		if (controller.getSignal(ControlSignals::Link)) {
 			int32_t returnAddress = current_PC + 4;
-			next_PC = result  & ~1; // ensure LSB is 0
+			next_PC = result  & ~1; // ensure LSB is 0 for alignment
 			regFile.write(parts.rd, returnAddress);
-			return true; // skip default PC += 4
+			return true; // skip default PC increment
 		}
 		regFile.write(parts.rd, result);
 	}
 
-	next_PC = current_PC + 4; // increment PC to next sequential instruction
+	// default: increment pc to next sequential instruction
+	next_PC = current_PC + 4;
 	return true;
 }
 
+// debug function to print all register values in hex format
 void CPU::printAllRegisters() {
 	cout << "=== Register Contents ===" << endl;
 	

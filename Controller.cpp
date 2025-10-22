@@ -1,5 +1,6 @@
 #include "Controller.h"
 
+// clear all control signals to default state
 void Controller::resetSignals() {
     for(int i = 0; i < 7; i++) {
         signals[i] = false;
@@ -7,10 +8,12 @@ void Controller::resetSignals() {
     aluOp = ALUOp::ALU_OP_INVALID;
 }
 
+// initialize controller with all signals reset
 Controller::Controller() {
     resetSignals();
 }
 
+// set control signals based on instruction opcode
 void Controller::setControlSignals(uint32_t opcode) {
     resetSignals();
 

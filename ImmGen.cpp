@@ -1,37 +1,38 @@
 #include "ImmGen.h"
 #include <bitset>
 
+// generate immediate values based on instruction type and encoding
 int32_t ImmGen::generate(uint32_t instruction) {
-    uint8_t opcode = instruction & 0x7F; // bits [6:0]
+    uint8_t opcode = instruction & 0x7F; // extract opcode bits [6:0]
     int32_t immediate = 0;
 
     switch (opcode) {
-        case 0x13: // I-type (ADDI, ORI, etc.)
-        case 0x03: // I-type (LW, LBU, etc.) - ADD THIS LINE
+        case 0x13: // I-type (addi, ori, sltiu)
+        case 0x03: // I-type (lw, lbu)
             immediate = (instruction >> 20) & 0xFFF; // bits [31:20]
             if (immediate & 0x800) {
                 immediate |= 0xFFFFF000; // sign extend
             }
             break;
-        case 0x23: // S-type
+        case 0x23: // S-type (sw, sh)
             immediate = ((instruction >> 25) & 0x7F) << 5 | ((instruction >> 7) & 0x1F); // bits [31:25] and [11:7]
             if (immediate & 0x800) {
                 immediate |= 0xFFFFF000;
             }
             break;
-        case 0x63: // B-type
+        case 0x63: // B-type (bne)
             immediate = ((instruction >> 31) & 0x1) << 12 | ((instruction >> 7) & 0x1) << 11 |
                         ((instruction >> 25) & 0x3F) << 5 | ((instruction >> 8) & 0xF) << 1; // bits [31], [7], [30:25], [11:8]
             if (immediate & 0x1000) {
                 immediate |= 0xFFFFE000;
             }
             break;
-        case 0x37: // U-type (LUI)
+        case 0x37: // U-type (lui)
             immediate = (instruction >> 12) & 0xFFFFF; // bits [31:12] - 20 bits
             immediate <<= 12; // shift to upper 20 bits, lower 12 bits become 0
             break;
         default:
-            immediate = 0; // for R-type and other types without immediates
+            immediate = 0; // for r-type and other types without immediates
             break;
     }
 
