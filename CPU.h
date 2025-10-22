@@ -12,6 +12,7 @@
 #include "RegFile.h"
 #include "Memory.h"
 #include "Controller.h"
+#include "MUX.h"
 using namespace std;
 
 

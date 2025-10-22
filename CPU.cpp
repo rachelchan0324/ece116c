@@ -2,6 +2,7 @@
 #include "InstructionParts.h"
 #include "ALU.h"
 #include "Controller.h"
+#include "MUX.h"
 #include <iostream>
 #include <iomanip>
 
@@ -70,49 +71,50 @@ bool CPU::execute(InstructionParts parts) {
 	int32_t rs1_data = regFile.read(parts.rs1);
 	int32_t rs2_data = regFile.read(parts.rs2);
 	
-	// perform alu computation with register or immediate operand
-	int32_t result;
-	if (controller.getSignal(ControlSignals::AluSrc)) {
-		result = alu.compute(rs1_data, parts.immediate, aluOperation);
-	} else {
-		result = alu.compute(rs1_data, rs2_data, aluOperation);
-	}
+	// perform alu computation with register or immediate operand using alusrc mux
+	int32_t alu_input2 = MUX::mux2(rs2_data, parts.immediate, controller.getSignal(ControlSignals::AluSrc));
+	int32_t alu_result = alu.compute(rs1_data, alu_input2, aluOperation);
 
 	// handle memory operations
 	if (controller.getSignal(ControlSignals::MemWrite)) {
-		memory.write(result, rs2_data);
+		memory.write(alu_result, rs2_data);
 	}
 
+	int32_t mem_data = alu_result; // default to alu result
 	if (controller.getSignal(ControlSignals::MemRead)) {
 		// distinguish between different load instruction types
 		if (parts.funct3 == 0x4) { // LBU (Load Byte Unsigned)
-			uint8_t byte_data = memory.readByte(result);
-			result = static_cast<int32_t>(byte_data); // zero-extend the byte
+			uint8_t byte_data = memory.readByte(alu_result);
+			mem_data = static_cast<int32_t>(byte_data); // zero-extend the byte
 		} else if (parts.funct3 == 0x2) { // LW (Load Word)
-			result = memory.read(result);
+			mem_data = memory.read(alu_result);
 		}
 	}
 
-	// handle register writeback and control flow
+	// register writeback data mux: select between alu result and memory data
+	int32_t writeback_data = MUX::mux2(alu_result, mem_data, controller.getSignal(ControlSignals::MemRead));
+
+	// pc source calculation
+	uint32_t pc_plus_4 = current_PC + 4;
+	uint32_t branch_target = current_PC + parts.immediate;
+	uint32_t jump_target = alu_result & ~1; // ensure alignment for jalr
+
+	// determine pc source: 0=pc+4, 1=branch, 2=jump
+	int pc_src = 0;
+	if (controller.getSignal(ControlSignals::Branch) && alu_result != 0) {
+		pc_src = 1; // take branch
+	} else if (controller.getSignal(ControlSignals::Link)) {
+		pc_src = 2; // jump (jalr)
+		writeback_data = pc_plus_4; // link register gets return address
+	}
+
+	// pc source mux
+	next_PC = MUX::mux3_pc(pc_plus_4, branch_target, jump_target, pc_src);
+
+	// register writeback
 	if(controller.getSignal(ControlSignals::RegWrite)) {
-		if(controller.getSignal(ControlSignals::Branch)) {
-			if (result != 0) {
-				next_PC = current_PC + parts.immediate;	// take the branch
-				regFile.write(parts.rd, result);
-				return true; // skip default PC increment
-			}
-		}
-		if (controller.getSignal(ControlSignals::Link)) {
-			int32_t returnAddress = current_PC + 4;
-			next_PC = result  & ~1; // ensure LSB is 0 for alignment
-			regFile.write(parts.rd, returnAddress);
-			return true; // skip default PC increment
-		}
-		regFile.write(parts.rd, result);
+		regFile.write(parts.rd, writeback_data);
 	}
-
-	// default: increment pc to next sequential instruction
-	next_PC = current_PC + 4;
 	return true;
 }
 
