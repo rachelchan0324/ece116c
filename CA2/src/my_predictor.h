@@ -16,11 +16,11 @@ public:
 
 class my_predictor : public branch_predictor {
 public:
-// Multiple history lengths - maximized for accuracy
-#define HISTORY_LENGTH_LONG   22    // Very long correlations
-#define HISTORY_LENGTH_MEDIUM 14    // Medium-range correlations
-#define HISTORY_LENGTH_SHORT  8     // Short-range correlations
-#define HISTORY_LENGTH_MICRO  4     // Very short patterns
+// Multiple history lengths - balanced configuration
+#define HISTORY_LENGTH_LONG   18    // Long correlations
+#define HISTORY_LENGTH_MEDIUM 12    // Medium-range correlations
+#define HISTORY_LENGTH_SHORT  7     // Short-range correlations
+#define HISTORY_LENGTH_MICRO  3     // Very short patterns
 
 #define TABLE_BITS_0  20    // 1M entries for long history
 #define TABLE_BITS_1  19    // 512K entries for medium history
