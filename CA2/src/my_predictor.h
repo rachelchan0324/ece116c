@@ -16,20 +16,20 @@ public:
 
 class my_predictor : public branch_predictor {
 public:
-// Multiple history lengths - optimized for best coverage
-#define HISTORY_LENGTH_LONG   19    // Long-range correlations
-#define HISTORY_LENGTH_MEDIUM 12    // Medium-range correlations
-#define HISTORY_LENGTH_SHORT  7     // Short-range correlations
-#define HISTORY_LENGTH_MICRO  3     // Very short patterns
+// Multiple history lengths - maximized for accuracy
+#define HISTORY_LENGTH_LONG   22    // Very long correlations
+#define HISTORY_LENGTH_MEDIUM 14    // Medium-range correlations
+#define HISTORY_LENGTH_SHORT  8     // Short-range correlations
+#define HISTORY_LENGTH_MICRO  4     // Very short patterns
 
-#define TABLE_BITS_0  19    // 512K entries for long history
-#define TABLE_BITS_1  18    // 256K entries for medium history
-#define TABLE_BITS_2  17    // 128K entries for short history
-#define TABLE_BITS_3  16    // 64K entries for micro history
+#define TABLE_BITS_0  20    // 1M entries for long history
+#define TABLE_BITS_1  19    // 512K entries for medium history
+#define TABLE_BITS_2  18    // 256K entries for short history
+#define TABLE_BITS_3  17    // 128K entries for micro history
 
-#define LOCAL_HIST_BITS  12  // 4K local history entries
-#define LOCAL_PRED_BITS  15  // 32K local prediction entries
-#define CHOICE_BITS      16  // 64K meta-predictor entries
+#define LOCAL_HIST_BITS  13  // 8K local history entries
+#define LOCAL_PRED_BITS  16  // 64K local prediction entries
+#define CHOICE_BITS      17  // 128K meta-predictor entries
 
 	my_update u;
 	branch_info bi;
