@@ -6,11 +6,11 @@
 class my_update : public branch_update {
 public:
 	unsigned int index[4];  // Indices for different predictors
-	unsigned int local_index;
-	unsigned int local_history_index;
-	unsigned int choice_index;
-	bool pred[4];  // Predictions from each predictor
-	bool local_pred;
+	unsigned int local_index; // which entry in the local prediction table
+	unsigned int local_history_index; // which entry in the local history table
+	unsigned int choice_index; // which entry in the meta-predictor table
+	bool pred[4];  // predictions from each predictor
+	bool local_pred; // predication from local predicator
 	int predictor_used;
 };
 
