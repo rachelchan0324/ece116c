@@ -1,88 +1,122 @@
 // my_predictor.h
-// Hybrid Tournament Predictor:
-// - Gshare with 18-bit history (global correlation)
-// - Local predictor with per-branch history patterns
-// - Bimodal predictor (PC-based)
-// - Tournament selection with adaptive learning
+// Advanced Multi-History Hybrid Predictor
+// Inspired by adaptive history length selection for different branch patterns
+// Uses multiple specialized predictors with different history lengths
 
 class my_update : public branch_update {
 public:
-	unsigned int gshare_index;
+	unsigned int index[4];  // Indices for different predictors
 	unsigned int local_index;
 	unsigned int local_history_index;
-	unsigned int bimodal_index;
 	unsigned int choice_index;
-	bool gshare_pred;
+	bool pred[4];  // Predictions from each predictor
 	bool local_pred;
-	bool bimodal_pred;
+	int predictor_used;
 };
 
 class my_predictor : public branch_predictor {
 public:
-#define HISTORY_LENGTH	20          // Global history length (longer = better correlation)
-#define GSHARE_BITS	16          // 64K gshare entries
-#define LOCAL_HIST_BITS	11          // 2K local history table entries
-#define LOCAL_PRED_BITS	11          // 2K local prediction entries
-#define BIMODAL_BITS	14          // 16K bimodal entries
-#define CHOICE_BITS	14          // 16K choice entries
+// Multiple history lengths - optimized for best coverage
+#define HISTORY_LENGTH_LONG   19    // Long-range correlations
+#define HISTORY_LENGTH_MEDIUM 12    // Medium-range correlations
+#define HISTORY_LENGTH_SHORT  7     // Short-range correlations
+#define HISTORY_LENGTH_MICRO  3     // Very short patterns
+
+#define TABLE_BITS_0  19    // 512K entries for long history
+#define TABLE_BITS_1  18    // 256K entries for medium history
+#define TABLE_BITS_2  17    // 128K entries for short history
+#define TABLE_BITS_3  16    // 64K entries for micro history
+
+#define LOCAL_HIST_BITS  12  // 4K local history entries
+#define LOCAL_PRED_BITS  15  // 32K local prediction entries
+#define CHOICE_BITS      16  // 64K meta-predictor entries
 
 	my_update u;
 	branch_info bi;
-	unsigned int history;  // Global history register
 	
-	// Gshare table (2-bit counters)
-	unsigned char gshare_tab[1<<GSHARE_BITS];
+	// Multiple global histories
+	unsigned int history_long;
+	unsigned int history_medium;
+	unsigned int history_short;
+	unsigned int history_micro;
 	
-	// Local history table (per-branch 10-bit histories)
+	// Prediction tables with different history lengths (3-bit counters)
+	unsigned char tab0[1<<TABLE_BITS_0];  // Long history table
+	unsigned char tab1[1<<TABLE_BITS_1];  // Medium history table
+	unsigned char tab2[1<<TABLE_BITS_2];  // Short history table
+	unsigned char tab3[1<<TABLE_BITS_3];  // Micro history table
+	
+	// Local predictor components
 	unsigned short local_hist_tab[1<<LOCAL_HIST_BITS];
-	
-	// Local prediction table (2-bit counters indexed by local history)
 	unsigned char local_pred_tab[1<<LOCAL_PRED_BITS];
 	
-	// Bimodal predictor (2-bit counters, indexed by PC only)
-	unsigned char bimodal_tab[1<<BIMODAL_BITS];
-	
-	// Choice predictor (2-bit counters, chooses best predictor)
+	// Meta-predictor for selecting best predictor
 	unsigned char choice_tab[1<<CHOICE_BITS];
 
-	my_predictor (void) : history(0) { 
-		memset (gshare_tab, 0, sizeof (gshare_tab));
+	my_predictor (void) : history_long(0), history_medium(0), history_short(0), history_micro(0) { 
+		memset (tab0, 2, sizeof (tab0));  // Initialize to weakly not-taken
+		memset (tab1, 2, sizeof (tab1));
+		memset (tab2, 2, sizeof (tab2));
+		memset (tab3, 2, sizeof (tab3));
 		memset (local_hist_tab, 0, sizeof (local_hist_tab));
-		memset (local_pred_tab, 0, sizeof (local_pred_tab));
-		memset (bimodal_tab, 0, sizeof (bimodal_tab));
-		memset (choice_tab, 0, sizeof (choice_tab));  // Start neutral
+		memset (local_pred_tab, 2, sizeof (local_pred_tab));
+		memset (choice_tab, 2, sizeof (choice_tab));  // Start neutral
 	}
+
 
 	branch_update *predict (branch_info & b) {
 		bi = b;
 		if (b.br_flags & BR_CONDITIONAL) {
-			// 1. GSHARE PREDICTION (global correlation)
-			// Better hash: fold and XOR multiple parts of PC
-			unsigned int pc1 = b.address >> 2;
-			unsigned int pc2 = b.address >> (GSHARE_BITS + 2);
-			u.gshare_index = (history ^ pc1 ^ pc2) & ((1<<GSHARE_BITS)-1);
-			u.gshare_pred = (gshare_tab[u.gshare_index] >= 2);
+			unsigned int pc = b.address >> 2;
 			
-			// 2. LOCAL PREDICTION (per-branch patterns)
-			// Each branch has its own history table
-			u.local_history_index = (b.address >> 2) & ((1<<LOCAL_HIST_BITS)-1);
+			// Simple direct-mapped gshare-style indices
+			
+			// Predictor 0: Long history
+			u.index[0] = ((history_long << (TABLE_BITS_0 - HISTORY_LENGTH_LONG)) ^ pc) & ((1<<TABLE_BITS_0)-1);
+			u.pred[0] = (tab0[u.index[0]] >= 4);
+			
+			// Predictor 1: Medium history
+			u.index[1] = ((history_medium << (TABLE_BITS_1 - HISTORY_LENGTH_MEDIUM)) ^ pc) & ((1<<TABLE_BITS_1)-1);
+			u.pred[1] = (tab1[u.index[1]] >= 4);
+			
+			// Predictor 2: Short history
+			u.index[2] = ((history_short << (TABLE_BITS_2 - HISTORY_LENGTH_SHORT)) ^ pc) & ((1<<TABLE_BITS_2)-1);
+			u.pred[2] = (tab2[u.index[2]] >= 4);
+			
+			// Predictor 3: Micro history
+			u.index[3] = ((history_micro << (TABLE_BITS_3 - HISTORY_LENGTH_MICRO)) ^ pc) & ((1<<TABLE_BITS_3)-1);
+			u.pred[3] = (tab3[u.index[3]] >= 4);
+			
+			// Local predictor
+			u.local_history_index = pc & ((1<<LOCAL_HIST_BITS)-1);
 			unsigned int local_hist = local_hist_tab[u.local_history_index];
 			u.local_index = local_hist & ((1<<LOCAL_PRED_BITS)-1);
-			u.local_pred = (local_pred_tab[u.local_index] >= 2);
+			u.local_pred = (local_pred_tab[u.local_index] >= 4);
 			
-			// 3. BIMODAL PREDICTION (simple PC-based)
-			u.bimodal_index = (b.address >> 2) & ((1<<BIMODAL_BITS)-1);
-			u.bimodal_pred = (bimodal_tab[u.bimodal_index] >= 2);
+			// Meta-predictor
+			u.choice_index = (pc ^ history_long ^ (history_medium << 3)) & ((1<<CHOICE_BITS)-1);
+			unsigned char choice_val = choice_tab[u.choice_index];
 			
-			// 4. META-PREDICTOR SELECTION
-			// Mix history and PC for better choice indexing
-			u.choice_index = ((history ^ (history >> CHOICE_BITS)) ^ (b.address >> 2)) & ((1<<CHOICE_BITS)-1);
-			bool use_gshare = (choice_tab[u.choice_index] < 2);
+			// Simple selection logic
+			bool final_pred;
+			if (choice_val <= 1) {
+				final_pred = u.pred[0];  // Long
+				u.predictor_used = 0;
+			} else if (choice_val <= 3) {
+				final_pred = u.pred[1];  // Medium
+				u.predictor_used = 1;
+			} else if (choice_val <= 5) {
+				final_pred = u.pred[2];  // Short
+				u.predictor_used = 2;
+			} else if (choice_val == 6) {
+				final_pred = u.pred[3];  // Micro
+				u.predictor_used = 3;
+			} else {
+				final_pred = u.local_pred;  // Local
+				u.predictor_used = 4;
+			}
 			
-			// Final prediction: tournament between gshare and local
-			bool pred = use_gshare ? u.gshare_pred : u.local_pred;
-			
-			u.direction_prediction(pred);
+			u.direction_prediction(final_pred);
 		} else {
 			u.direction_prediction(true);
 		}
@@ -90,51 +124,102 @@ public:
 		return &u;
 	}
 
+
 	void update (branch_update *up, bool taken, unsigned int target) {
 		if (bi.br_flags & BR_CONDITIONAL) {
 			my_update *mu = (my_update*)up;
 			
-			// 1. UPDATE GSHARE
-			unsigned char *g = &gshare_tab[mu->gshare_index];
-			if (taken) {
-				if (*g < 3) (*g)++;
-			} else {
-				if (*g > 0) (*g)--;
+			// Update all predictor tables (3-bit saturating counters: 0-7)
+			for (int i = 0; i < 4; i++) {
+				unsigned char *t = nullptr;
+				switch(i) {
+					case 0: t = &tab0[mu->index[i]]; break;
+					case 1: t = &tab1[mu->index[i]]; break;
+					case 2: t = &tab2[mu->index[i]]; break;
+					case 3: t = &tab3[mu->index[i]]; break;
+				}
+				if (taken) {
+					if (*t < 7) (*t)++;
+				} else {
+					if (*t > 0) (*t)--;
+				}
 			}
 			
-			// 2. UPDATE LOCAL PREDICTOR
+			// Update local predictor
 			unsigned char *l = &local_pred_tab[mu->local_index];
 			if (taken) {
-				if (*l < 3) (*l)++;
+				if (*l < 7) (*l)++;
 			} else {
 				if (*l > 0) (*l)--;
 			}
 			
-			// 3. UPDATE BIMODAL
-			unsigned char *b = &bimodal_tab[mu->bimodal_index];
-			if (taken) {
-				if (*b < 3) (*b)++;
-			} else {
-				if (*b > 0) (*b)--;
-			}
+			// Update meta-predictor (choice table)
+			// Train it to select the best predictor
+			unsigned char *c = &choice_tab[mu->choice_index];
 			
-			// 4. UPDATE CHOICE (only when gshare and local disagree)
-			if (mu->gshare_pred != mu->local_pred) {
-				unsigned char *c = &choice_tab[mu->choice_index];
-				bool gshare_correct = (mu->gshare_pred == taken);
-				if (gshare_correct) {
-					if (*c > 0) (*c)--;  // Prefer gshare
-				} else {
-					if (*c < 3) (*c)++;  // Prefer local
+			// Check which predictors were correct
+			bool pred_correct[5];
+			for (int i = 0; i < 4; i++) {
+				pred_correct[i] = (mu->pred[i] == taken);
+			}
+			pred_correct[4] = (mu->local_pred == taken);
+			
+			bool used_correct = pred_correct[mu->predictor_used];
+			
+			// Update choice based on performance
+			if (!used_correct) {
+				// Current predictor was wrong, try to shift to a better one
+				if (pred_correct[0]) {
+					// Long history was right, shift toward it
+					if (*c > 0) (*c)--;
+				} else if (pred_correct[1]) {
+					// Medium history was right
+					if (*c < 2 || *c > 3) {
+						*c = (*c < 2) ? (*c + 1) : (*c - 1);
+					}
+				} else if (pred_correct[2]) {
+					// Short history was right
+					if (*c < 4 || *c > 5) {
+						*c = (*c < 4) ? (*c + 1) : (*c - 1);
+					}
+				} else if (pred_correct[3]) {
+					// Micro history was right
+					if (*c != 6) {
+						*c = (*c < 6) ? (*c + 1) : (*c - 1);
+					}
+				} else if (pred_correct[4]) {
+					// Local was right, shift toward it
+					if (*c < 7) (*c)++;
+				}
+			} else {
+				// Current predictor was correct, reinforce it slightly
+				switch(mu->predictor_used) {
+					case 0: if (*c > 0) (*c)--; break;
+					case 1: 
+						if (*c < 2) (*c)++;
+						else if (*c > 3) (*c)--;
+						break;
+					case 2:
+						if (*c < 4) (*c)++;
+						else if (*c > 5) (*c)--;
+						break;
+					case 3: 
+						if (*c < 6) (*c)++;
+						else if (*c > 6) (*c)--;
+						break;
+					case 4: if (*c < 7) (*c)++; break;
 				}
 			}
 			
-			// 5. UPDATE LOCAL HISTORY for this branch
+			// Update local history for this branch
 			unsigned short *lh = &local_hist_tab[mu->local_history_index];
-			*lh = ((*lh << 1) | taken) & ((1<<10)-1);  // 10-bit history
+			*lh = ((*lh << 1) | taken) & ((1<<12)-1);
 			
-			// 6. UPDATE GLOBAL HISTORY
-			history = ((history << 1) | taken) & ((1<<HISTORY_LENGTH)-1);
+			// Update all global histories
+			history_long = ((history_long << 1) | taken) & ((1<<HISTORY_LENGTH_LONG)-1);
+			history_medium = ((history_medium << 1) | taken) & ((1<<HISTORY_LENGTH_MEDIUM)-1);
+			history_short = ((history_short << 1) | taken) & ((1<<HISTORY_LENGTH_SHORT)-1);
+			history_micro = ((history_micro << 1) | taken) & ((1<<HISTORY_LENGTH_MICRO)-1);
 		}
 	}
 };
