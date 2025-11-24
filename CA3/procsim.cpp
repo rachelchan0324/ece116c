@@ -1,5 +1,6 @@
 #include "procsim.hpp"
 #include <vector>
+#include <algorithm> // Remove later
 
 // configuration parameters
 uint64_t num_result_buses;           // Number of result buses (r)
@@ -47,6 +48,11 @@ uint64_t schedule_queue_size = 0;
 // Register scoreboard
 std::vector<bool> register_ready;
 std::vector<uint64_t> register_tag;  // Tag of the producer instruction for each register
+
+// ============== DEBUG: REMOVE BEFORE SUBMISSION ==============
+std::vector<proc_inst_t> completed_instructions;
+uint64_t inst_counter = 0;
+// ============== END DEBUG ==============
 
 // Statistics
 uint64_t total_dispatch_size = 0;
@@ -97,6 +103,8 @@ void setup_proc(uint64_t r, uint64_t k0, uint64_t k1, uint64_t k2, uint64_t f)
     max_dispatch_size = 0;
     next_tag = 1;
     fetch_complete = false;
+    completed_instructions.clear();  // DEBUG: REMOVE BEFORE SUBMISSION
+    inst_counter = 0;                // DEBUG: REMOVE BEFORE SUBMISSION
 }
 
 // FETCH: fetch up to fetch_width instructions and add to dispatch queue
@@ -107,6 +115,14 @@ void fetch_phase()
     for (uint64_t i = 0; i < fetch_width; i++) {
         proc_inst_t inst;
         if (read_instruction(&inst)) {
+            // ============== DEBUG: REMOVE BEFORE SUBMISSION ==============
+            inst.inst_num = ++inst_counter;
+            inst.fetch_cycle = cycle_count;
+            inst.disp_cycle = 0;
+            inst.sched_cycle = 0;
+            inst.exec_cycle = 0;
+            inst.state_cycle = 0;
+            // ============== END DEBUG ==============
             dispatch_queue.push_back(inst);
         } else {
             fetch_complete = true;
@@ -120,6 +136,8 @@ void dispatch_phase()
 {
     while (!dispatch_queue.empty() && schedule_queue.size() < schedule_queue_size) {
         proc_inst_t inst = dispatch_queue.front();
+        inst.disp_cycle = cycle_count;  // ============== DEBUG: REMOVE BEFORE SUBMISSION ==============
+        
         ScheduleEntry entry;
         entry.instruction = inst;
         entry.tag = next_tag++;
@@ -157,11 +175,18 @@ void schedule_phase()
 {
     for (auto& entry : schedule_queue) {
         if (entry.fired) continue;
+        
+        // Update dependencies from result buses
         for (auto& bus : result_buses) {
             if (bus.busy) {
                 if (entry.src0_tag == bus.tag) entry.src0_tag = 0;
                 if (entry.src1_tag == bus.tag) entry.src1_tag = 0;
             }
+        }
+        
+        // ============== DEBUG: Mark when instruction becomes schedulable (dependencies cleared) ==============
+        if (entry.instruction.sched_cycle == 0 && entry.src0_tag == 0 && entry.src1_tag == 0) {
+            entry.instruction.sched_cycle = cycle_count;
         }
     }
     for (auto& bus : result_buses) bus.busy = false;
@@ -176,6 +201,11 @@ void execute_phase()
         
         // Check if ready to fire (src tags are 0 = ready)
         if (schedule_queue[i].src0_tag != 0 || schedule_queue[i].src1_tag != 0) continue;
+
+        // If this instruction only became schedulable this same cycle,
+        // do not fire it until the next cycle. This ensures SCHED and
+        // EXEC are in different cycles (matches expected trace format).
+        if (inst.sched_cycle == cycle_count) continue;
         
         // Find available FU
         std::vector<FunctionalUnit>* units = nullptr;
@@ -193,6 +223,7 @@ void execute_phase()
                     schedule_queue[i].fu_index = j;
                     schedule_queue[i].fu_type = fu_type;
                     schedule_queue[i].completion_cycle = cycle_count + 1;
+                    schedule_queue[i].instruction.exec_cycle = cycle_count;  // DEBUG: REMOVE BEFORE SUBMISSION
                     
                     (*units)[j].busy = true;
                     
@@ -233,6 +264,8 @@ void state_update_phase()
         
         ScheduleEntry& entry = schedule_queue[idx];
         
+        entry.instruction.state_cycle = cycle_count;  // DEBUG: REMOVE BEFORE SUBMISSION
+        
         // Broadcast on result bus
         result_buses[retired_count].busy = true;
         result_buses[retired_count].tag = entry.tag;
@@ -250,6 +283,8 @@ void state_update_phase()
         } else if (entry.fu_type == 2) {
             k2_units[entry.fu_index].busy = false;
         }
+        
+        completed_instructions.push_back(entry.instruction);  // DEBUG: REMOVE BEFORE SUBMISSION
         
         to_remove.push_back(idx);
         retired_count++;
@@ -273,12 +308,6 @@ void run_proc(proc_stats_t* p_stats)
 {
     while (true) {
         cycle_count++;
-        
-        if (cycle_count % 1000 == 0) {
-            fprintf(stderr, "Cycle %llu: dq=%zu sq=%zu retired=%llu fc=%d\n",
-                   (unsigned long long)cycle_count, dispatch_queue.size(), schedule_queue.size(),
-                   (unsigned long long)total_inst_retired, fetch_complete);
-        }
         
         state_update_phase();   // retire & broadcast on result buses
         schedule_phase();       // watch buses & update dependencies
@@ -322,3 +351,19 @@ void complete_proc(proc_stats_t *p_stats)
     p_stats->retired_instruction = total_inst_retired;
     p_stats->cycle_count = cycle_count;
 }
+
+// ============== DEBUG: REMOVE BEFORE SUBMISSION ==============
+void print_instruction_trace()
+{
+    printf("INST\tFETCH\tDISP\tSCHED\tEXEC\tSTATE\n");
+    for (const auto& inst : completed_instructions) {
+        printf("%llu\t%llu\t%llu\t%llu\t%llu\t%llu\n",
+               (unsigned long long)inst.inst_num,
+               (unsigned long long)inst.fetch_cycle,
+               (unsigned long long)inst.disp_cycle,
+               (unsigned long long)inst.sched_cycle,
+               (unsigned long long)inst.exec_cycle,
+               (unsigned long long)inst.state_cycle);
+    }
+}
+// ============== END DEBUG ==============

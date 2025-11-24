@@ -108,6 +108,10 @@ int main(int argc, char* argv[]) {
     /* Finalize stats */
     complete_proc(&stats);
 
+    // ============== DEBUG: REMOVE BEFORE SUBMISSION ==============
+    print_instruction_trace();
+    // ============== END DEBUG ==============
+    
     // Comment this out when submitting to gradescope
     print_statistics(&stats);
 
