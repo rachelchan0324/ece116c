@@ -34,8 +34,7 @@ bool read_instruction(proc_inst_t* p_inst)
         return false;
     }
     
-    ret = fscanf(stdin, "%x %d %d %d %d\n", &p_inst->instruction_address,
-                 &p_inst->op_code, &p_inst->dest_reg, &p_inst->src_reg[0], &p_inst->src_reg[1]); 
+    ret = fscanf(inFile, "%x %d %d %d %d\n", &p_inst->instruction_address, &p_inst->op_code, &p_inst->dest_reg, &p_inst->src_reg[0], &p_inst->src_reg[1]); 
     if (ret != 5) {
         return false;
     }
@@ -109,24 +108,20 @@ int main(int argc, char* argv[]) {
     complete_proc(&stats);
 
     // ============== DEBUG: REMOVE BEFORE SUBMISSION ==============
-    print_instruction_trace();
+    // print_instruction_trace();
     // ============== END DEBUG ==============
     
-    // Comment this out when submitting to gradescope
     print_statistics(&stats);
-
-    printf("%lu\n",stats.cycle_count);
-
     return 0;
 }
 
 void print_statistics(proc_stats_t* p_stats) {
+    printf("\n");
     printf("Processor stats:\n");
-	printf("Total instructions: %lu\n", p_stats->retired_instruction);
-        printf("Avg Dispatch queue size: %f\n", p_stats->avg_disp_size);
-        printf("Maximum Dispatch queue size: %lu\n", p_stats->max_disp_size);
-        printf("Avg inst fired per cycle: %f\n", p_stats->avg_inst_fired);
-	printf("Avg inst retired per cycle: %f\n", p_stats->avg_inst_retired);
-	printf("Total run time (cycles): %lu\n", p_stats->cycle_count);
+    printf("Total instructions: %lu\n", (unsigned long)p_stats->retired_instruction);
+    printf("Avg Dispatch queue size: %f\n", (double)p_stats->avg_disp_size);
+    printf("Maximum Dispatch queue size: %lu\n", (unsigned long)p_stats->max_disp_size);
+    printf("Avg inst fired per cycle: %f\n", (double)p_stats->avg_inst_fired);
+    printf("Avg inst retired per cycle: %f\n", (double)p_stats->avg_inst_retired);
+    printf("Total run time (cycles): %lu\n", (unsigned long)p_stats->cycle_count);
 }
-

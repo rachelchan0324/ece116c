@@ -1,4 +1,7 @@
 #include "procsim.hpp"
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <vector>
 #include <algorithm>
 #include <deque>
@@ -88,7 +91,7 @@ void setup_proc(uint64_t r, uint64_t k0, uint64_t k1, uint64_t k2, uint64_t f)
     // initialize functional units
     auto init_fu = [](std::vector<FunctionalUnit>& units, size_t size) {
         units.resize(size);
-        for (auto& u : units) { u.busy = false; u.cycles = 0; u.current_tag = 0; }
+        for (FunctionalUnit& u : units) { u.busy = false; u.cycles = 0; u.current_tag = 0; }
     };
     init_fu(k0_units, k0);
     init_fu(k1_units, k1);
@@ -141,7 +144,7 @@ void fetch_phase()
 // DISPATCH: move instructions from fetch queue to dispatch queue
 void dispatch_phase()
 {
-    for (auto& inst : fetch_queue) {
+    for (proc_inst_t& inst : fetch_queue) {
         inst.disp_cycle = cycle_count;
         dispatch_queue.push_back(inst);
     }
@@ -153,7 +156,7 @@ void schedule_phase()
 {
     if (schedule_queue.size() >= schedule_queue_size) return;
     
-    auto it = dispatch_queue.begin();
+    std::vector<proc_inst_t>::iterator it = dispatch_queue.begin();
     while (it != dispatch_queue.end() && schedule_queue.size() < schedule_queue_size) {
         ScheduleEntry entry;
         entry.instruction = *it;
@@ -200,15 +203,17 @@ void execute_phase()
         return nullptr;
     };
     
-    for (auto& entry : schedule_queue) {
+    // iterate through all instructions in schedule queue looking for ready ones
+    for (ScheduleEntry& entry : schedule_queue) {
         if (entry.fired || !entry.src0_ready || !entry.src1_ready) continue;
         
         int fu_type = -1;
-        auto* units = get_fu_units(entry.instruction.op_code, fu_type);
+        std::vector<FunctionalUnit>* units = get_fu_units(entry.instruction.op_code, fu_type);
         
         if (units) {
             for (size_t j = 0; j < units->size(); j++) {
                 if (!(*units)[j].busy) {
+                    // found free fu - fire instruction into it
                     entry.fired = true;
                     entry.fu_index = j;
                     entry.fu_type = fu_type;
@@ -219,7 +224,7 @@ void execute_phase()
                     (*units)[j].current_tag = entry.tag;
                     
                     total_inst_fired++;
-                    break;
+                    break;  // only fire to one fu, move to next instruction
                 }
             }
         }
@@ -237,11 +242,9 @@ void state_update_phase()
         return nullptr;
     };
     
-    // RETIRE PHASE 1: Remove retired instructions from schedule queue
-    retired_queue.erase(
-        std::remove_if(retired_queue.begin(), retired_queue.end(), [](uint64_t retired_tag) {
-            auto it = std::find_if(schedule_queue.begin(), schedule_queue.end(),
-                                   [retired_tag](const ScheduleEntry& e) { return e.tag == retired_tag; });
+    // RETIRE PHASE 1: remove retired instructions from schedule queue
+    retired_queue.erase(std::remove_if(retired_queue.begin(), retired_queue.end(), [](uint64_t retired_tag) {
+            std::vector<ScheduleEntry>::iterator it = std::find_if(schedule_queue.begin(), schedule_queue.end(), [retired_tag](const ScheduleEntry& e) { return e.tag == retired_tag; });
             if (it != schedule_queue.end()) {
                 schedule_queue.erase(it);
                 return true;  // remove from retired_queue
@@ -257,9 +260,9 @@ void state_update_phase()
         uint64_t tag = result_bus_queue.front();
         result_bus_queue.pop_front();
         
-        auto it = std::find_if(schedule_queue.begin(), schedule_queue.end(),
-                              [tag](const ScheduleEntry& e) { return e.tag == tag; });
-        if (it == schedule_queue.end()) continue;
+        std::vector<ScheduleEntry>::iterator it = std::find_if(schedule_queue.begin(), schedule_queue.end(), [tag](const ScheduleEntry& e) { return e.tag == tag; });
+        if (it == schedule_queue.end())
+            continue;
         
         it->broadcast = true;
         total_inst_retired++;
@@ -271,7 +274,7 @@ void state_update_phase()
             register_tag[it->instruction.dest_reg] = 0;
         }
         
-        for (auto& rs : schedule_queue) {
+        for (ScheduleEntry& rs : schedule_queue) {
             if (!rs.src0_ready && rs.src0_tag == tag) { rs.src0_ready = true; rs.src0_tag = 0; }
             if (!rs.src1_ready && rs.src1_tag == tag) { rs.src1_ready = true; rs.src1_tag = 0; }
         }
@@ -279,23 +282,22 @@ void state_update_phase()
     
     // decrement FU cycles
     auto decrement_fu = [](std::vector<FunctionalUnit>& units) {
-        for (auto& u : units) if (u.busy && u.cycles > 0) u.cycles--;
+        for (FunctionalUnit& u : units) if (u.busy && u.cycles > 0) u.cycles--;
     };
     decrement_fu(k0_units);
     decrement_fu(k1_units);
     decrement_fu(k2_units);
     
     // sort schedule_queue by tag
-    std::sort(schedule_queue.begin(), schedule_queue.end(),
-              [](const ScheduleEntry& a, const ScheduleEntry& b) { return a.tag < b.tag; });
+    std::sort(schedule_queue.begin(), schedule_queue.end(), [](const ScheduleEntry& a, const ScheduleEntry& b) { return a.tag < b.tag; });
     
     // collect newly completed instructions
     std::vector<uint64_t> newly_completed_tags;
-    for (auto& entry : schedule_queue) {
+    for (ScheduleEntry& entry : schedule_queue) {
         if (entry.fired && !entry.broadcast && !entry.on_result_bus) {
-            auto* units = get_fu_array(entry.fu_type);
+            std::vector<FunctionalUnit>* units = get_fu_array(entry.fu_type);
             if (units && entry.fu_index >= 0 && entry.fu_index < (int)units->size()) {
-                auto& fu = (*units)[entry.fu_index];
+                FunctionalUnit& fu = (*units)[entry.fu_index];
                 if (fu.busy && fu.current_tag == entry.tag && fu.cycles == 0) {
                     newly_completed_tags.push_back(entry.tag);
                     entry.on_result_bus = true;
@@ -309,7 +311,7 @@ void state_update_phase()
         result_bus_queue.push_back(tag);
     }
     
-    // assign STATE to first R instructions and free their FUs
+    // assign state cycle and free functional units for first R instructions on result bus
     auto get_fu_array2 = [](int fu_type) -> std::vector<FunctionalUnit>* {
         if (fu_type == 0) return &k0_units;
         if (fu_type == 1) return &k1_units;
@@ -320,12 +322,14 @@ void state_update_phase()
     size_t num_to_state = std::min<size_t>(result_bus_queue.size(), num_result_buses);
     for (size_t i = 0; i < num_to_state; i++) {
         uint64_t tag = result_bus_queue[i];
-        auto it = std::find_if(schedule_queue.begin(), schedule_queue.end(),
-                              [tag](const ScheduleEntry& e) { return e.tag == tag && e.instruction.state_cycle == 0; });
+        // find instruction in schedule queue that hasn't been assigned state yet
+        std::vector<ScheduleEntry>::iterator it = std::find_if(schedule_queue.begin(), schedule_queue.end(), [tag](const ScheduleEntry& e) { return e.tag == tag && e.instruction.state_cycle == 0; });
         
         if (it != schedule_queue.end()) {
             it->instruction.state_cycle = cycle_count;
-            auto* units = get_fu_array2(it->fu_type);
+            
+            // free the functional unit that was executing this instruction
+            std::vector<FunctionalUnit>* units = get_fu_array2(it->fu_type);
             if (units && it->fu_index >= 0 && it->fu_index < (int)units->size()) {
                 (*units)[it->fu_index].busy = false;
                 (*units)[it->fu_index].cycles = 0;
@@ -384,7 +388,8 @@ void complete_proc(proc_stats_t *p_stats)
 {
     p_stats->avg_inst_retired = (float)total_inst_retired / (float)p_stats->cycle_count;
     p_stats->avg_inst_fired = (float)total_inst_fired / (float)p_stats->cycle_count;
-    p_stats->avg_disp_size = (float)total_dispatch_size / (float)p_stats->cycle_count;
+    // p_stats->avg_disp_size = (float)total_dispatch_size / (float)p_stats->cycle_count;
+    p_stats->avg_disp_size = static_cast<double>(total_dispatch_size) / (float)p_stats->cycle_count;
     p_stats->max_disp_size = max_dispatch_size;
     p_stats->retired_instruction = total_inst_retired;
 }
@@ -393,13 +398,12 @@ void complete_proc(proc_stats_t *p_stats)
 void print_instruction_trace()
 {
     // sort by instruction number (tag)
-    std::sort(completed_instructions.begin(), completed_instructions.end(),
-              [](const proc_inst_t& a, const proc_inst_t& b) {
-                  return a.inst_num < b.inst_num;
-              });
+    std::sort(completed_instructions.begin(), completed_instructions.end(), [](const proc_inst_t& a, const proc_inst_t& b) {
+        return a.inst_num < b.inst_num;
+    });
     
     printf("INST\tFETCH\tDISP\tSCHED\tEXEC\tSTATE\n");
-    for (const auto& inst : completed_instructions) {
+    for (const proc_inst_t& inst : completed_instructions) {
         printf("%llu\t%llu\t%llu\t%llu\t%llu\t%llu\n",
                (unsigned long long)inst.inst_num,
                (unsigned long long)inst.fetch_cycle,

@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 
 #define DEFAULT_K0 1
 #define DEFAULT_K1 2
@@ -17,15 +18,12 @@ typedef struct _proc_inst_t
     int32_t src_reg[2];
     int32_t dest_reg;
     
-    // You may introduce other fields as needed
-    // ============== DEBUG: REMOVE BEFORE SUBMISSION ==============
-    uint64_t inst_num;       // Instruction number (for tracking)
-    uint64_t fetch_cycle;    // Cycle when instruction was fetched
-    uint64_t disp_cycle;     // Cycle when instruction was dispatched
-    uint64_t sched_cycle;    // Cycle when instruction became schedulable (sources ready)
-    uint64_t exec_cycle;     // Cycle when instruction fired/executed
-    uint64_t state_cycle;    // Cycle when instruction retired/completed
-    // ============== END DEBUG ==============
+    uint64_t inst_num;       // instruction number (for tracking)
+    uint64_t fetch_cycle;    // cycle when instruction was fetched
+    uint64_t disp_cycle;     // cycle when instruction was dispatched
+    uint64_t sched_cycle;    // cycle when instruction became schedulable (sources ready)
+    uint64_t exec_cycle;     // cycle when instruction fired/executed
+    uint64_t state_cycle;    // cycle when instruction retired/completed
     
 } proc_inst_t;
 
