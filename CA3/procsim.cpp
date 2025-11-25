@@ -1,6 +1,7 @@
 #include "procsim.hpp"
 #include <vector>
 #include <algorithm>
+#include <deque>
 
 // configuration parameters
 uint64_t num_result_buses;           // nnmber of result buses (r)
@@ -8,9 +9,12 @@ uint64_t num_k0_fus;                 // number of k0 functional units
 uint64_t num_k1_fus;                 // number of k1 functional units
 uint64_t num_k2_fus;                 // number of k2 functional units
 uint64_t fetch_width;                // number of instructions to fetch per cycle (f)
-// functional unit: just tracks if busy (latency is always 1)
+
+// functional unit: tracks busy state and cycles remaining
 struct FunctionalUnit {
     bool busy;
+    int cycles;  // cycles remaining for current instruction
+    uint64_t current_tag;  // tag of instruction using this FU
 };
 
 // functional unit arrays (one for each type)
@@ -21,12 +25,11 @@ std::vector<FunctionalUnit> k2_units;
 // dispatch queue - holds instructions waiting to be executed
 std::vector<proc_inst_t> dispatch_queue;
 
-// result buses - broadcast completed instruction tags
-struct ResultBus {
-    bool busy;
-    uint64_t tag;
-};
-std::vector<ResultBus> result_buses;
+// result bus queue - holds tags of completed instructions ready to broadcast/retire
+std::deque<uint64_t> result_bus_queue;
+
+// retired queue - holds tags of instructions that were retired in previous cycle, to be removed from schedule queue
+std::vector<uint64_t> retired_queue;
 
 // fetch queue - holds freshly fetched instructions
 std::vector<proc_inst_t> fetch_queue;
@@ -38,8 +41,8 @@ struct ScheduleEntry {
     bool fired;
     int fu_index;
     int fu_type;
-    uint64_t completion_cycle;
     bool broadcast;  // true if result has been broadcast on CDB
+    bool on_result_bus;  // true if already added to result bus queue
     bool src0_ready;
     uint64_t src0_tag;
     bool src1_ready;
@@ -51,11 +54,9 @@ uint64_t next_tag = 1;
 uint64_t schedule_queue_size = 0;
 
 // register scoreboard
-std::vector<bool> register_ready;
 std::vector<uint64_t> register_tag;  // tag of the producer instruction for each register
 
 std::vector<proc_inst_t> completed_instructions;
-uint64_t inst_counter = 0;
 
 // statistics
 uint64_t total_dispatch_size = 0;
@@ -87,18 +88,17 @@ void setup_proc(uint64_t r, uint64_t k0, uint64_t k1, uint64_t k2, uint64_t f)
     k0_units.resize(k0);
     k1_units.resize(k1);
     k2_units.resize(k2);
-    for (auto& unit : k0_units) unit.busy = false;
-    for (auto& unit : k1_units) unit.busy = false;
-    for (auto& unit : k2_units) unit.busy = false;
+    for (auto& unit : k0_units) { unit.busy = false; unit.cycles = 0; unit.current_tag = 0; }
+    for (auto& unit : k1_units) { unit.busy = false; unit.cycles = 0; unit.current_tag = 0; }
+    for (auto& unit : k2_units) { unit.busy = false; unit.cycles = 0; unit.current_tag = 0; }
     
-    register_ready.resize(128, true);
     register_tag.resize(128, 0);
     fetch_queue.clear();
     dispatch_queue.clear();
     schedule_queue_size = 2 * (k0 + k1 + k2);
     schedule_queue.clear();
-    result_buses.resize(r);
-    for (auto& bus : result_buses) bus.busy = false;
+    result_bus_queue.clear();
+    retired_queue.clear();
     
     total_dispatch_size = 0;
     total_inst_fired = 0;
@@ -108,7 +108,6 @@ void setup_proc(uint64_t r, uint64_t k0, uint64_t k1, uint64_t k2, uint64_t f)
     next_tag = 1;
     fetch_complete = false;
     completed_instructions.clear();
-    inst_counter = 0;
 }
 
 // FETCH: fetch up to fetch_width instructions and add to fetch queue
@@ -119,9 +118,9 @@ void fetch_phase()
     for (uint64_t i = 0; i < fetch_width; i++) {
         proc_inst_t inst;
         if (read_instruction(&inst)) {
-            inst.inst_num = ++inst_counter;
+            inst.inst_num = next_tag++;  // Use tag for instruction number
             inst.fetch_cycle = cycle_count;  // instruction fetched in current cycle
-            inst.disp_cycle = 0;
+            inst.disp_cycle = 0; // initialize all other cycles to 0
             inst.sched_cycle = 0;
             inst.exec_cycle = 0;
             inst.state_cycle = 0;
@@ -139,7 +138,6 @@ void dispatch_phase()
     while (!fetch_queue.empty()) {
         proc_inst_t inst = fetch_queue.front();
         inst.disp_cycle = cycle_count;
-        
         dispatch_queue.push_back(inst);
         fetch_queue.erase(fetch_queue.begin());
     }
@@ -148,50 +146,59 @@ void dispatch_phase()
 // SCHEDULE: move instructions from dispatch queue to schedule queue
 void schedule_phase()
 {
+    // early exit if schedule queue is full
+    if (schedule_queue.size() >= schedule_queue_size) {
+        return;
+    }
+    
     // move instructions from dispatch queue to schedule queue (if space available)
-    while (!dispatch_queue.empty() && schedule_queue.size() < schedule_queue_size) {
-        proc_inst_t inst = dispatch_queue.front();
-        inst.sched_cycle = cycle_count;  // instruction scheduled in current cycle
+    auto it = dispatch_queue.begin();
+    while (it != dispatch_queue.end() && schedule_queue.size() < schedule_queue_size) {
+        proc_inst_t inst = *it;
         
         ScheduleEntry entry;
         entry.instruction = inst;
-        entry.tag = next_tag++;
+        entry.instruction.sched_cycle = cycle_count;  // instruction scheduled in current cycle
+        entry.tag = inst.inst_num;  // Use inst_num as tag
         entry.fired = false;
         entry.broadcast = false;
+        entry.on_result_bus = false;
         entry.fu_index = -1;
         entry.fu_type = -1;
-        entry.completion_cycle = 0;
         
-        // copy ready bits and tags from register file
-        if (inst.src_reg[0] != -1) {
-            entry.src0_ready = register_ready[inst.src_reg[0]];
-            entry.src0_tag = register_tag[inst.src_reg[0]];
-        } else {
-            entry.src0_ready = true;  // no dependency
-            entry.src0_tag = 0;
-        }      
-        if (inst.src_reg[1] != -1) {
-            entry.src1_ready = register_ready[inst.src_reg[1]];
-            entry.src1_tag = register_tag[inst.src_reg[1]];
-        } else {
-            entry.src1_ready = true;
-            entry.src1_tag = 0;
+        // determine source readiness based on register tags
+        for (int i = 0; i < 2; i++) {
+            bool* ready_ptr = (i == 0) ? &entry.src0_ready : &entry.src1_ready;
+            uint64_t* tag_ptr = (i == 0) ? &entry.src0_tag : &entry.src1_tag;
+            
+            if (inst.src_reg[i] == -1) {
+                *ready_ptr = true;
+                *tag_ptr = 0;
+            } else {
+                int src = inst.src_reg[i];
+                if (register_tag[src] == 0) {
+                    *ready_ptr = true;
+                    *tag_ptr = 0;
+                } else {
+                    *ready_ptr = false;
+                    *tag_ptr = register_tag[src];
+                }
+            }
         }
         
         // update register file: mark dest as not ready and assign new tag
         if (inst.dest_reg != -1) {
-            register_ready[inst.dest_reg] = false;
             register_tag[inst.dest_reg] = entry.tag;
         }
         
-        dispatch_queue.erase(dispatch_queue.begin());
         schedule_queue.push_back(entry);
+        it = dispatch_queue.erase(it);
     }
 }
 
 void execute_phase()
 {
-    // STEP 1: Fire ready instructions into available FUs
+    // fire ready instructions into available FUs
     for (size_t i = 0; i < schedule_queue.size(); i++) {
         if (schedule_queue[i].fired) continue;
         
@@ -215,10 +222,11 @@ void execute_phase()
                     schedule_queue[i].fired = true;
                     schedule_queue[i].fu_index = j;
                     schedule_queue[i].fu_type = fu_type;
-                    schedule_queue[i].completion_cycle = cycle_count;  // latency=1 means completes same cycle
                     schedule_queue[i].instruction.exec_cycle = cycle_count;
                     
                     (*units)[j].busy = true;
+                    (*units)[j].cycles = 1;  // latency = 1
+                    (*units)[j].current_tag = schedule_queue[i].tag;
                     
                     total_inst_fired++;
                     break;
@@ -226,87 +234,147 @@ void execute_phase()
             }
         }
     }
+}
+
+// STATE UPDATE: decrement FU cycles and push completed instructions to result bus queue
+void state_update_phase()
+{
+    // decrement cycles for all busy FUs
+    for (auto& unit : k0_units) if (unit.busy && unit.cycles > 0) unit.cycles--;
+    for (auto& unit : k1_units) if (unit.busy && unit.cycles > 0) unit.cycles--;
+    for (auto& unit : k2_units) if (unit.busy && unit.cycles > 0) unit.cycles--;
     
-    // STEP 2: find completed instructions and broadcast on CDB (result buses)
-    std::vector<size_t> completed_indices;
-    for (size_t i = 0; i < schedule_queue.size(); i++) {
-        if (!schedule_queue[i].fired) continue;
-        if (schedule_queue[i].completion_cycle <= cycle_count) {
-            completed_indices.push_back(i);
-        }
-    }
-    
-    // sort by tag (lowest first) for in-order retirement
-    std::sort(completed_indices.begin(), completed_indices.end(), [](size_t a, size_t b) {
-        return schedule_queue[a].tag < schedule_queue[b].tag;
+    // sort schedule_queue by tag
+    std::sort(schedule_queue.begin(), schedule_queue.end(), [](const ScheduleEntry& a, const ScheduleEntry& b) {
+        return a.tag < b.tag;
     });
     
-    // broadcast up to num_result_buses completed instructions on CDB
-    uint64_t broadcast_count = 0;
-    for (size_t idx : completed_indices) {
-        if (broadcast_count >= num_result_buses) break;
+    // collect newly completed instructions (FU cycles reached 0 this cycle)
+    std::vector<uint64_t> newly_completed_tags;
+    for (size_t i = 0; i < schedule_queue.size(); i++) {
+        ScheduleEntry& entry = schedule_queue[i];
+        if (!entry.fired || entry.broadcast || entry.on_result_bus) continue;
         
-        ScheduleEntry& entry = schedule_queue[idx];
+        // check if this instruction's FU has completed
+        std::vector<FunctionalUnit>* units = nullptr;
+        if (entry.fu_type == 0) units = &k0_units;
+        else if (entry.fu_type == 1) units = &k1_units;
+        else if (entry.fu_type == 2) units = &k2_units;
         
-        // broadcast on result bus
-        result_buses[broadcast_count].busy = true;
-        result_buses[broadcast_count].tag = entry.tag;
-        entry.broadcast = true;  // mark as broadcast
-        
-        // free the functional unit
-        if (entry.fu_type == 0) {
-            k0_units[entry.fu_index].busy = false;
-        } else if (entry.fu_type == 1) {
-            k1_units[entry.fu_index].busy = false;
-        } else if (entry.fu_type == 2) {
-            k2_units[entry.fu_index].busy = false;
-        }
-        
-        broadcast_count++;
-    }
-    
-    // STEP 3: wakeup - CDB updates scheduling queue (update dependencies from result buses)
-    for (auto& entry : schedule_queue) {
-        if (entry.fired) continue;
-        
-        for (auto& bus : result_buses) {
-            if (bus.busy) {
-                if (entry.src0_tag == bus.tag) {
-                    entry.src0_tag = 0;
-                    entry.src0_ready = true;
-                }
-                if (entry.src1_tag == bus.tag) {
-                    entry.src1_tag = 0;
-                    entry.src1_ready = true;
-                }
+        if (units && entry.fu_index >= 0 && entry.fu_index < (int)units->size()) {
+            FunctionalUnit& fu = (*units)[entry.fu_index];
+            if (fu.busy && fu.current_tag == entry.tag && fu.cycles == 0) {
+                newly_completed_tags.push_back(entry.tag);
+                entry.on_result_bus = true;
             }
         }
     }
     
-    // Register file update happens at the beginning of next cycle in run_proc()
-    // Result buses are also cleared there
-}
-
-// STATE UPDATE: retire completed instructions (remove from schedule queue)
-void state_update_phase()
-{
-    // find instructions that have been broadcast on CDB and are ready to retire
-    std::vector<size_t> to_remove;
+    // sort newly completed by tag (they all completed in the same cycle)
+    std::sort(newly_completed_tags.begin(), newly_completed_tags.end());
     
-    for (size_t i = 0; i < schedule_queue.size(); i++) {
-        if (!schedule_queue[i].broadcast) continue;  // only retire if already broadcast
-        
-        ScheduleEntry& entry = schedule_queue[i];
-        entry.instruction.state_cycle = cycle_count;
-        completed_instructions.push_back(entry.instruction);
-        
-        to_remove.push_back(i);
-        total_inst_retired++;
+    // add to result_bus_queue in order (older completions first, then new ones sorted by tag)
+    for (uint64_t tag : newly_completed_tags) {
+        result_bus_queue.push_back(tag);
     }
     
-    // remove retired instructions from schedule queue (reverse order to maintain indices)
-    for (int i = to_remove.size() - 1; i >= 0; i--) {
-        schedule_queue.erase(schedule_queue.begin() + to_remove[i]);
+    // assign STATE to first R instructions in result_bus AND free their FUs
+    uint64_t num_to_state = std::min((uint64_t)result_bus_queue.size(), num_result_buses);
+    for (uint64_t i = 0; i < num_to_state; i++) {
+        uint64_t tag = result_bus_queue[i];
+        
+        // find entry and assign STATE
+        for (auto& entry : schedule_queue) {
+            if (entry.tag == tag && entry.instruction.state_cycle == 0) {
+                entry.instruction.state_cycle = cycle_count;
+                
+                // free the FU
+                std::vector<FunctionalUnit>* units = nullptr;
+                if (entry.fu_type == 0) units = &k0_units;
+                else if (entry.fu_type == 1) units = &k1_units;
+                else if (entry.fu_type == 2) units = &k2_units;
+                
+                if (units && entry.fu_index >= 0 && entry.fu_index < (int)units->size()) {
+                    (*units)[entry.fu_index].busy = false;
+                    (*units)[entry.fu_index].cycles = 0;
+                }
+                break;
+            }
+        }
+    }
+}
+
+// RETIRE: process result bus queue - update register file, wakeup dependencies, remove from schedule queue
+void retire_phase()
+{
+    // phase 1: Remove instructions that were retired in previous cycle(s)
+    for (auto it_retired = retired_queue.begin(); it_retired != retired_queue.end(); ) {
+        uint64_t retired_tag = *it_retired;
+        bool erased_from_schedule = false;
+        
+        // find and remove from schedule queue
+        for (auto it_sched = schedule_queue.begin(); it_sched != schedule_queue.end(); ++it_sched) {
+            if (it_sched->tag == retired_tag) {
+                schedule_queue.erase(it_sched);
+                erased_from_schedule = true;
+                break;
+            }
+        }
+        
+        // if successfully removed from schedule queue, remove from retired queue
+        if (erased_from_schedule) {
+            it_retired = retired_queue.erase(it_retired);
+        } else {
+            ++it_retired;
+        }
+    }
+    
+    // Phase 2: Process up to R instructions from result bus queue
+    size_t num_to_retire = std::min<size_t>(num_result_buses, result_bus_queue.size());
+    
+    for (size_t i = 0; i < num_to_retire; i++) {
+        uint64_t tag = result_bus_queue.front();
+        result_bus_queue.pop_front();
+        
+        // find the entry with this tag
+        ScheduleEntry* entry_ptr = nullptr;
+        for (auto& entry : schedule_queue) {
+            if (entry.tag == tag) {
+                entry_ptr = &entry;
+                break;
+            }
+        }
+        
+        if (!entry_ptr) continue;
+        ScheduleEntry& entry = *entry_ptr;
+        
+        entry.broadcast = true;  // mark as broadcast/retired
+        total_inst_retired++;
+        
+        // record for debug output
+        completed_instructions.push_back(entry.instruction);
+        
+        // add to retired queue for removal in next cycle
+        retired_queue.push_back(tag);
+        
+        // update register file
+        int dest = entry.instruction.dest_reg;
+        if (dest != -1 && register_tag[dest] == entry.tag) {
+            register_tag[dest] = 0;
+        }
+        
+        // wakeup dependent instructions in schedule queue
+        for (auto& rs : schedule_queue) {
+            for (int j = 0; j < 2; j++) {
+                bool* ready_ptr = (j == 0) ? &rs.src0_ready : &rs.src1_ready;
+                uint64_t* tag_ptr = (j == 0) ? &rs.src0_tag : &rs.src1_tag;
+                
+                if (!(*ready_ptr) && (*tag_ptr) == entry.tag) {
+                    *ready_ptr = true;
+                    *tag_ptr = 0;
+                }
+            }
+        }
     }
 }
 
@@ -322,30 +390,22 @@ void run_proc(proc_stats_t* p_stats)
     while (true) {
         cycle_count++;
         
-        // STEP 0: Update register file from PREVIOUS cycle's CDB broadcasts
-        for (auto& bus : result_buses) {
-            if (bus.busy) {
-                for (int reg = 0; reg < 128; reg++) {
-                    if (register_tag[reg] == bus.tag) {
-                        register_ready[reg] = true;
-                    }
-                }
-            }
-        }
-        // Clear CDB after updating register file
-        for (auto& bus : result_buses) bus.busy = false;
-        
-        state_update_phase();      // retire completed instructions
-        execute_phase();           // fire instructions, broadcast results (but don't update register file yet)
-        schedule_phase();          // move from dispatch queue to schedule queue (sees register file from previous cycle)
-        dispatch_phase();          // move from fetch queue to dispatch queue
-        fetch_phase();             // fetch new instructions to fetch queue
+        retire_phase(); // step 1: retire - process result bus from previous cycle
+        state_update_phase(); // step 2: state update - decrement FU cycles, push completed to result bus
+        execute_phase(); // step 3: execute - fire ready instructions
+        schedule_phase(); // step 4: schedule - move from dispatch queue to schedule queue
+        dispatch_phase(); // step 5: dispatch - move from fetch queue to dispatch queue
+        fetch_phase(); // step 6: fetch - fetch new instructions
         
         total_dispatch_size += dispatch_queue.size();
-        if (dispatch_queue.size() > max_dispatch_size) max_dispatch_size = dispatch_queue.size();
+        if (dispatch_queue.size() > max_dispatch_size)
+            max_dispatch_size = dispatch_queue.size();
         
-        if (fetch_complete && fetch_queue.empty() && dispatch_queue.empty() && schedule_queue.empty()) break;
+        // all instructions are done!
+        if (fetch_complete && fetch_queue.empty() && dispatch_queue.empty() && schedule_queue.empty() && result_bus_queue.empty())
+            break;
         
+        // REMOVE LATER
         if (cycle_count > 200000) {
             fprintf(stderr, "ERROR: Exceeded 200k cycles - likely deadlock!\n");
             fprintf(stderr, "fetch_complete=%d, fetch_queue=%zu, dispatch_queue=%zu, schedule_queue=%zu\n",
@@ -359,6 +419,9 @@ void run_proc(proc_stats_t* p_stats)
             break;
         }
     }
+    
+    // set the final cycle count
+    p_stats->cycle_count = cycle_count - 2;
 }
 
 /**
@@ -370,17 +433,22 @@ void run_proc(proc_stats_t* p_stats)
  */
 void complete_proc(proc_stats_t *p_stats) 
 {
-    p_stats->avg_inst_retired = (float)total_inst_retired / (float)cycle_count;
-    p_stats->avg_inst_fired = (float)total_inst_fired / (float)cycle_count;
-    p_stats->avg_disp_size = (float)total_dispatch_size / (float)cycle_count;
+    p_stats->avg_inst_retired = (float)total_inst_retired / (float)p_stats->cycle_count;
+    p_stats->avg_inst_fired = (float)total_inst_fired / (float)p_stats->cycle_count;
+    p_stats->avg_disp_size = (float)total_dispatch_size / (float)p_stats->cycle_count;
     p_stats->max_disp_size = max_dispatch_size;
     p_stats->retired_instruction = total_inst_retired;
-    p_stats->cycle_count = cycle_count;
 }
 
 // ============== DEBUG: REMOVE BEFORE SUBMISSION ==============
 void print_instruction_trace()
 {
+    // sort by instruction number (tag)
+    std::sort(completed_instructions.begin(), completed_instructions.end(),
+              [](const proc_inst_t& a, const proc_inst_t& b) {
+                  return a.inst_num < b.inst_num;
+              });
+    
     printf("INST\tFETCH\tDISP\tSCHED\tEXEC\tSTATE\n");
     for (const auto& inst : completed_instructions) {
         printf("%llu\t%llu\t%llu\t%llu\t%llu\t%llu\n",
