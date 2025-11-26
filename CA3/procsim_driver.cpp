@@ -86,13 +86,13 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    printf("Processor Settings\n");
-    printf("R: %" PRIu64 "\n", r);
-    printf("k0: %" PRIu64 "\n", k0);
-    printf("k1: %" PRIu64 "\n", k1);
-    printf("k2: %" PRIu64 "\n", k2);
-    printf("F: %"  PRIu64 "\n", f);
-    printf("\n");
+    // printf("Processor Settings\n");
+    // printf("R: %" PRIu64 "\n", r);
+    // printf("k0: %" PRIu64 "\n", k0);
+    // printf("k1: %" PRIu64 "\n", k1);
+    // printf("k2: %" PRIu64 "\n", k2);
+    // printf("F: %"  PRIu64 "\n", f);
+    // printf("\n");
 
     /* Setup the processor */
     setup_proc(r, k0, k1, k2, f);
@@ -116,12 +116,13 @@ int main(int argc, char* argv[]) {
 }
 
 void print_statistics(proc_stats_t* p_stats) {
-    printf("\n");
-    printf("Processor stats:\n");
-    printf("Total instructions: %lu\n", (unsigned long)p_stats->retired_instruction);
-    printf("Avg Dispatch queue size: %f\n", (double)p_stats->avg_disp_size);
-    printf("Maximum Dispatch queue size: %lu\n", (unsigned long)p_stats->max_disp_size);
-    printf("Avg inst fired per cycle: %f\n", (double)p_stats->avg_inst_fired);
-    printf("Avg inst retired per cycle: %f\n", (double)p_stats->avg_inst_retired);
-    printf("Total run time (cycles): %lu\n", (unsigned long)p_stats->cycle_count);
+    // printf("\n");
+    // printf("Processor stats:\n");
+    // printf("Total instructions: %lu\n", (unsigned long)p_stats->retired_instruction);
+    // printf("Avg Dispatch queue size: %f\n", (double)p_stats->avg_disp_size);
+    // printf("Maximum Dispatch queue size: %lu\n", (unsigned long)p_stats->max_disp_size);
+    // printf("Avg inst fired per cycle: %f\n", (double)p_stats->avg_inst_fired);
+    // printf("Avg inst retired per cycle: %f\n", (double)p_stats->avg_inst_retired);
+    // printf("Total run time (cycles): %lu\n", (unsigned long)p_stats->cycle_count);
+    printf("%lu\n", (unsigned long)p_stats->cycle_count);
 }
